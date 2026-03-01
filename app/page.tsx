@@ -15,6 +15,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sessionKey = useRef(`web:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`)
+  const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -23,6 +24,44 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+      }
+    }
+  }, [])
+
+  const startPolling = () => {
+    // Poll setiap 3 detik
+    pollingRef.current = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/chat?sessionKey=${sessionKey.current}`)
+        const data = await response.json()
+        
+        if (data.ok && data.response) {
+          // Jawaban ditemukan!
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: data.response.message?.text || data.response.message,
+            timestamp: new Date()
+          }])
+          setLoading(false)
+          
+          // Stop polling
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+            pollingRef.current = null
+          }
+        }
+      } catch (err) {
+        console.error('Polling error:', err)
+      }
+    }, 3000) // 3 detik
+  }
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
@@ -39,50 +78,30 @@ export default function ChatPage() {
     setLoading(true)
 
     try {
-      const response = await fetch('/api/chat', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify({ 
           message: input,
-          sessionKey: sessionKey.current,
+          sessionKey: sessionKey.current 
         }),
       })
 
-      if (!response.ok) {
-        throw new Error('Gagal mengirim pesan')
-      }
+      if (!res.ok) throw new Error('Gagal mengirim')
 
-      const data = await response.json()
+      // Mulai polling untuk jawaban
+      startPolling()
 
-      if (data.ok) {
-        // Poll for response
-        await pollForResponse()
-      } else {
-        throw new Error(data.error || 'Unknown error')
-      }
     } catch (error) {
       console.error('Error:', error)
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Maaf, terjadi kesalahan. Silakan coba lagi.',
+        content: 'Maaf, terjadi kesalahan.',
         timestamp: new Date(),
       }])
       setLoading(false)
     }
-  }
-
-  const pollForResponse = async () => {
-    // Simple polling - in production use WebSocket or SSE
-    setTimeout(() => {
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content: 'Pesan diterima! Ini adalah balasan otomatis. Dalam implementasi nyata, kamu perlu setup WebHook atau polling untuk menerima balasan dari OpenClaw.',
-        timestamp: new Date(),
-      }])
-      setLoading(false)
-    }, 2000)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -145,7 +164,8 @@ export default function ChatPage() {
           {loading && (
             <div className="flex justify-start">
               <div className="bg-white p-3 rounded-2xl rounded-bl-md shadow">
-                <div className="flex gap-1">
+                <p className="text-gray-500 text-sm">Menunggu jawaban...</p>
+                <div className="flex gap-1 mt-2">
                   <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
                   <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
                   <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
@@ -170,7 +190,7 @@ export default function ChatPage() {
             className="flex-1 p-3 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={loading}
           />
-          <button
+          <button 
             onClick={sendMessage}
             disabled={!input.trim() || loading}
             className="px-6 py-3 bg-blue-600 text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition"
