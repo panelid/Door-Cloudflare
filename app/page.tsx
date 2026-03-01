@@ -14,8 +14,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const sessionKey = useRef(`web:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`)
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
+  const currentRunId = useRef<string | null>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -24,44 +23,6 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current)
-      }
-    }
-  }, [])
-
-  const startPolling = () => {
-    // Poll setiap 3 detik
-    pollingRef.current = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/chat?sessionKey=${sessionKey.current}`)
-        const data = await response.json()
-        
-        if (data.ok && data.response) {
-          // Jawaban ditemukan!
-          setMessages(prev => [...prev, {
-            id: Date.now().toString(),
-            role: 'assistant',
-            content: data.response.message?.text || data.response.message,
-            timestamp: new Date()
-          }])
-          setLoading(false)
-          
-          // Stop polling
-          if (pollingRef.current) {
-            clearInterval(pollingRef.current)
-            pollingRef.current = null
-          }
-        }
-      } catch (err) {
-        console.error('Polling error:', err)
-      }
-    }, 3000) // 3 detik
-  }
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
@@ -78,26 +39,38 @@ export default function ChatPage() {
     setLoading(true)
 
     try {
+      // Kirim pesan ke API
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: input,
-          sessionKey: sessionKey.current 
-        }),
+        body: JSON.stringify({ message: input }),
       })
 
       if (!res.ok) throw new Error('Gagal mengirim')
 
-      // Mulai polling untuk jawaban
-      startPolling()
+      const data = await res.json()
+      
+      if (data.ok && data.runId) {
+        currentRunId.current = data.runId
+        
+        // Tunggu jawaban (simulasi - di realita pakai webhook atau refresh)
+        setTimeout(() => {
+          setMessages(prev => [...prev, {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: 'Pesan diterima! Mohon tunggu, saya akan memproses pertanyaan Anda.\n\n(Untuk jawaban lengkap, cek Telegram/WhatsApp yang terhubung dengan OpenClaw)',
+            timestamp: new Date(),
+          }])
+          setLoading(false)
+        }, 2000)
+      }
 
     } catch (error) {
       console.error('Error:', error)
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Maaf, terjadi kesalahan.',
+        content: 'Maaf, terjadi kesalahan. Silakan coba lagi.',
         timestamp: new Date(),
       }])
       setLoading(false)
@@ -133,6 +106,9 @@ export default function ChatPage() {
             <div className="text-center text-gray-500 mt-10">
               <p className="text-lg mb-2">👋 Halo!</p>
               <p>Mulai chat dengan Claw AI</p>
+              <p className="text-sm mt-2 text-gray-400">
+                (Jawaban lengkap akan dikirim ke Telegram/WhatsApp)
+              </p>
             </div>
           )}
           
@@ -164,7 +140,7 @@ export default function ChatPage() {
           {loading && (
             <div className="flex justify-start">
               <div className="bg-white p-3 rounded-2xl rounded-bl-md shadow">
-                <p className="text-gray-500 text-sm">Menunggu jawaban...</p>
+                <p className="text-gray-500 text-sm">Mengirim...</p>
                 <div className="flex gap-1 mt-2">
                   <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
                   <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
